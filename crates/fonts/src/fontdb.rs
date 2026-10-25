@@ -1745,10 +1745,6 @@ impl FontDb {
         (found, faces.len())
     }
 
-    /// Load a system font covering `c` (preferred fallback families first, then any cataloged
-    /// file under 40 MB, found through the coverage index). Returns true if one was loaded.
-    /// Misses are remembered.
-    #[cfg(not(target_arch = "wasm32"))]
     /// Load every installed [`RTL_FALLBACKS`] family (each tried once). The right-to-left
     /// fallback ranks those families above the other loaded faces, but only chooses among faces
     /// already loaded: without this, Hebrew or Arabic text fell back to whatever loaded face
@@ -1775,6 +1771,10 @@ impl FontDb {
         }
     }
 
+    /// Load a system font covering `c` (preferred fallback families first, then any cataloged
+    /// file under 40 MB, found through the coverage index). Returns true if one was loaded.
+    /// Misses are remembered.
+    #[cfg(not(target_arch = "wasm32"))]
     fn system_fallback(&self, c: char) -> bool {
         if c.is_control() || c.is_whitespace() {
             return false;
