@@ -2497,6 +2497,24 @@ fn lists_are_tagged_as_lists_with_labels_and_nesting() {
     }
 }
 
+/// Two lists one right after the other are two `L`s, as in Word, and an item with a number but no
+/// text keeps its list together (it has a `Lbl` and no `LBody`).
+#[test]
+fn adjacent_lists_stay_apart_and_empty_items_stay_in() {
+    let mut d = Document::new();
+    let first = d.numbering.add_list(ListKind::Numbered);
+    let second = d.numbering.add_list(ListKind::Numbered);
+    let item = |text: &str, num: u32| {
+        let mut p = Paragraph::with_text(text, CharProps::default()).styled("ListParagraph");
+        p.props.numbering = Some(NumRef { num, level: 0 });
+        para_block(p)
+    };
+    d.body = vec![item("One", first), item("", first), item("Three", first), item("Again one", second), item("Again two", second)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert!(tree.contains("L(LI(Lbl LBody) LI(Lbl) LI(Lbl LBody)) L(LI(Lbl LBody) LI(Lbl LBody))"), "{tree}");
+}
+
 /// A picture inline in a list item is a Figure in the item's body, so the list goes on after it
 /// as one list.
 #[test]

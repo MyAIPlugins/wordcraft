@@ -745,6 +745,9 @@ struct ListPlace {
     container: Vec<u32>,
     /// The paragraph's index in its container.
     block: u32,
+    /// The list (numbering instance) it belongs to: a different list right after it starts a new
+    /// `L`, as in Word.
+    num: u32,
     level: u8,
     numbering: ListNumbering,
 }
@@ -759,19 +762,24 @@ struct ListItem {
 /// The list items in `items` from `*i` on at `level` or deeper, as one `L`; deeper items are
 /// nested lists inside the body of the item before them (an item with no item before it at
 /// this level gets an item of its own with no label).
-fn list_group(items: &mut Vec<Option<(u8, ListNumbering, Vec<Node>, Vec<Node>)>>, i: &mut usize, level: u8, numbering: ListNumbering) -> Node {
+fn list_group(items: &mut Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>>, i: &mut usize, list: (u32, u8, ListNumbering)) -> Node {
+    let (num, level, numbering) = list;
     let mut out: Vec<ListItem> = Vec::new();
-    while let Some(Some((l, n, _, _))) = items.get(*i) {
-        let (l, n) = (*l, *n);
+    while let Some(Some((m, l, n, _, _))) = items.get(*i) {
+        let (m, l, n) = (*m, *l, *n);
         if l < level {
             break;
         }
         if l == level {
-            let Some((_, _, label, body)) = items.get_mut(*i).and_then(Option::take) else { break };
+            // Another list (or another kind of numbering) at this level: a list of its own.
+            if (m, n) != (num, numbering) {
+                break;
+            }
+            let Some((_, _, _, label, body)) = items.get_mut(*i).and_then(Option::take) else { break };
             out.push(ListItem { label, body });
             *i += 1;
         } else {
-            let nested = list_group(items, i, l, n);
+            let nested = list_group(items, i, (m, l, n));
             match out.last_mut() {
                 Some(item) => item.body.push(nested),
                 None => out.push(ListItem { label: Vec::new(), body: vec![nested] }),
@@ -785,7 +793,10 @@ fn list_group(items: &mut Vec<Option<(u8, ListNumbering, Vec<Node>, Vec<Node>)>>
             if !item.label.is_empty() {
                 parts.push(Node::Group(TagGroup::with_children(Tag::Lbl, item.label)));
             }
-            parts.push(Node::Group(TagGroup::with_children(Tag::LBody, item.body)));
+            // An item with a number but no text has no body.
+            if !item.body.is_empty() {
+                parts.push(Node::Group(TagGroup::with_children(Tag::LBody, item.body)));
+            }
             Node::Group(TagGroup::with_children(Tag::LI, parts))
         })
         .collect();
@@ -1167,6 +1178,7 @@ impl Exporter<'_> {
                 story,
                 container: container.to_vec(),
                 block: *block,
+                num: num.num,
                 level: num.level,
                 numbering: self.doc.numbering.level(num.num, num.level).map_or(ListNumbering::None, |l| list_numbering(l.format)),
             }),
@@ -1181,21 +1193,22 @@ impl Exporter<'_> {
     fn tag_tree(&mut self) -> TagTree {
         let mut tree = TagTree::new().with_lang(self.doc.styles.default_chr.lang.clone());
         // Consecutive list items of one container, waiting to be grouped into a list.
-        let mut run: Vec<Option<(u8, ListNumbering, Vec<Node>, Vec<Node>)>> = Vec::new();
+        let mut run: Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>> = Vec::new();
         let mut last: Option<ListPlace> = None;
-        let flush = |run: &mut Vec<Option<(u8, ListNumbering, Vec<Node>, Vec<Node>)>>, tree: &mut TagTree| {
+        let flush = |run: &mut Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>>, tree: &mut TagTree| {
             let mut i = 0;
             while i < run.len() {
-                let Some(Some((level, numbering, _, _))) = run.get(i) else { break };
-                let (level, numbering) = (*level, *numbering);
-                if let Node::Group(g) = list_group(run, &mut i, level, numbering) {
+                let Some(Some((num, level, numbering, _, _))) = run.get(i) else { break };
+                let list = (*num, *level, *numbering);
+                if let Node::Group(g) = list_group(run, &mut i, list) {
                     tree.push(g);
                 }
             }
             run.clear();
         };
         for e in std::mem::take(&mut self.tags) {
-            if e.children.is_empty() {
+            // A list item with a number but no text still counts: it keeps its list together.
+            if e.children.is_empty() && e.label.is_empty() {
                 continue;
             }
             match e.list {
@@ -1206,7 +1219,7 @@ impl Exporter<'_> {
                     if !follows {
                         flush(&mut run, &mut tree);
                     }
-                    run.push(Some((place.level, place.numbering, e.label, e.children)));
+                    run.push(Some((place.num, place.level, place.numbering, e.label, e.children)));
                     last = Some(place);
                 }
                 None => {
