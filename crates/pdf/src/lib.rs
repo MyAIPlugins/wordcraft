@@ -1369,20 +1369,31 @@ impl Exporter<'_> {
             }
         }
         let heads = table.rows.iter().take_while(|r| r.props.header).count();
-        // A row whose cells all continue merges from above has no cell of its own and no `TR`:
-        // a merged cell's `RowSpan` counts only the rows that have one.
-        let has_tr = |r: usize| table.rows.get(r).is_some_and(|row| (0..row.cells.len()).any(|c| !covered(r, c)));
+        let grid = table.cols();
+        // The grid columns row `r` leaves out before and after its cells (`w:gridBefore`,
+        // `w:gridAfter`, or a row shorter than the table).
+        let gaps = |r: usize| {
+            table.rows.get(r).map_or((0, 0), |row| {
+                let before = row.first_grid();
+                (before, grid.saturating_sub(before + row.cells.iter().map(wordcraft_doc::table::Cell::span).sum::<usize>()))
+            })
+        };
+        // A row whose columns are all covered by merges from above has no cell of its own and no
+        // `TR`: a merged cell's `RowSpan` counts only the rows that have one. Columns a row leaves
+        // out are a cell of their own (an empty one, below), so such a row keeps its `TR`.
+        let has_tr = |r: usize| {
+            let (before, after) = gaps(r);
+            before > 0 || after > 0 || table.rows.get(r).is_some_and(|row| (0..row.cells.len()).any(|c| !covered(r, c)))
+        };
         let span = |n: usize| NonZeroU32::new(u32::try_from(n).unwrap_or(1)).filter(|n| n.get() > 1);
         let (mut head, mut body) = (Vec::new(), Vec::new());
         // An empty cell standing for `n` grid columns a row leaves out (`w:gridBefore`,
         // `w:gridAfter`, or a row shorter than the table): every row then spans the same
         // columns, as a screen reader's grid (and PDF/UA) needs.
         let gap = |n: usize| Node::Group(TagGroup::with_children(Tag::TD.with_col_span(span(n)), Vec::new()));
-        let grid = table.cols();
         for (r, row) in table.rows.iter().enumerate() {
             let mut tr = Vec::new();
-            let before = row.first_grid();
-            let after = grid.saturating_sub(before + row.cells.iter().map(wordcraft_doc::table::Cell::span).sum::<usize>());
+            let (before, after) = gaps(r);
             if before > 0 {
                 tr.push(gap(before));
             }
@@ -1400,7 +1411,7 @@ impl Exporter<'_> {
                 };
                 tr.push(Node::Group(TagGroup::with_children(tag, content)));
             }
-            // A row whose cells all continue merges from above has no row of its own.
+            // A row whose columns all continue merges from above has no row of its own.
             if !has_tr(r) {
                 continue;
             }

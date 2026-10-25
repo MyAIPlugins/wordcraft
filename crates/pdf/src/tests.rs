@@ -2810,3 +2810,24 @@ fn an_orphan_merge_continuation_is_a_cell_of_its_own() {
     let text = squash(&extract_text(&bytes).concat());
     assert!(text.contains("Top") && !text.contains("Orphan"), "{text}");
 }
+
+/// A row that leaves a grid column out and whose only cell continues a merge keeps its `TR` (the
+/// empty cell standing for the left-out column), and the merged cell spans it.
+#[test]
+fn a_row_with_a_grid_gap_and_a_merge_continuation_keeps_its_row() {
+    use wordcraft_doc::props::VMerge;
+    let mut d = Document::new();
+    let mut t = Table::new(2, 2, 300.0);
+    t.rows[0].cells[0].blocks = text_cell("Left");
+    t.rows[0].cells[1].props.vmerge = VMerge::Restart;
+    t.rows[0].cells[1].blocks = text_cell("Tall");
+    t.rows[1].props.grid_before = 1;
+    t.rows[1].cells.truncate(1);
+    t.rows[1].cells[0].props.vmerge = VMerge::Continue;
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert!(tree.contains("Table(TBody(TR(TD(P) TD(P)) TR(TD)))"), "{tree}");
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(raw.contains("/RowSpan 2") || raw.contains("/RowSpan/2"), "the merged cell spans both rows");
+}
