@@ -2593,3 +2593,21 @@ fn list_numbering_follows_the_number_format() {
         assert_eq!(list_numbering(format), want, "{format:?}");
     }
 }
+
+/// A numbered heading's number is part of the heading (it is no list item): "1. Introduction"
+/// reads whole, and the number's marked content has a place in the tree. The same goes for any
+/// numbered paragraph with an outline level.
+#[test]
+fn a_numbered_headings_number_stays_in_the_heading() {
+    let mut d = Document::new();
+    let list = d.numbering.add_list(ListKind::Numbered);
+    let mut h = Paragraph::with_text("Introduction", CharProps::default()).styled("Heading1");
+    h.props.numbering = Some(NumRef { num: list, level: 0 });
+    d.body = vec![para_block(h), para_block(Paragraph::with_text("Body text", CharProps::default()))];
+    // Before, the number's marked content had no element and the export failed outright.
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert_eq!(tree, "Document(H1 P)");
+    let text = squash(&extract_text(&bytes).concat());
+    assert!(text.contains("1.") && text.contains("Introduction"), "{text}");
+}

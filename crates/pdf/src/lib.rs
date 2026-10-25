@@ -954,7 +954,12 @@ impl Exporter<'_> {
                 f(self, s);
                 s.end_tagged();
                 if let Some(e) = self.tags.get_mut(i) {
-                    e.label.push(Node::Leaf(id));
+                    // A numbered heading is no list item: its number reads as part of its text.
+                    if e.list.is_some() {
+                        e.label.push(Node::Leaf(id));
+                    } else {
+                        e.children.push(Node::Leaf(id));
+                    }
                 }
             }
             Role::Figure => {
