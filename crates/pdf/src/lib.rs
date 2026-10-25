@@ -195,7 +195,7 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
         links: Vec::new(),
         link_owner: None,
         open_link: None,
-        link_slots: HashMap::new(),
+        link_runs: HashMap::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
     if let Some(o) = ex.outline(pages) {
@@ -918,9 +918,10 @@ struct Exporter<'a> {
     /// The `Link` element last opened, with its target: the next run of the same link in the
     /// same paragraph continues it (a link across formatting changes or lines is one link).
     open_link: Option<(usize, usize, String)>,
-    /// Each `Link` element by (structure entry, target): a header row repeated on a later page
-    /// adds its link's annotation there.
-    link_slots: HashMap<(usize, String), usize>,
+    /// The `Link` element of each link run, in drawing order, by (structure entry, first line):
+    /// a header row repeated on a later page draws the same runs again, and the k-th run's
+    /// annotation joins the k-th run's `Link` of the first time.
+    link_runs: HashMap<(usize, usize), Vec<usize>>,
     /// Bookmark positions by name (the first of a name wins), gathered once: looking each internal
     /// link up by walking the whole document made a long document with a linked table of contents
     /// take seconds to export.
@@ -1175,11 +1176,18 @@ impl Exporter<'_> {
                 // table starts, and an artifact on the pages after (as Word exports it).
                 // Its links stay links: their annotations join the `Link` elements of the first time.
                 Placed::Lines { story, path, l0, .. } if path.cell().is_some() && !self.drawn_lines.insert((*story, path.clone(), *l0)) => {
-                    let idx = self.tag_index.get(&(*story, path.clone())).copied();
+                    let runs = self.tag_index.get(&(*story, path.clone())).and_then(|i| self.link_runs.get(&(*i, *l0)).map(|r| (*i, r.clone())));
                     self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| {
+                        let mut k = 0;
                         for d in &draws {
-                            me.link_owner = match (idx, d) {
-                                (Some(i), Draw::Glyphs { link: Some(t), .. }) => me.link_slots.get(&(i, t.clone())).map(|c| (i, *c)),
+                            // The same runs as the first time, so the k-th link run is the k-th there.
+                            me.link_owner = match (&runs, d) {
+                                (Some((i, slots)), Draw::Glyphs { link: Some(t), list_label: false, .. })
+                                    if me.opts.tagged && me.link_target(t).is_some() =>
+                                {
+                                    k += 1;
+                                    slots.get(k - 1).map(|c| (*i, *c))
+                                }
                                 _ => None,
                             };
                             me.draw(s, d);
@@ -1187,7 +1195,7 @@ impl Exporter<'_> {
                         me.link_owner = None;
                     });
                 }
-                Placed::Lines { story, path, para, .. } => {
+                Placed::Lines { story, path, para, l0, .. } => {
                     let idx = self.entry(*story, path, para);
                     self.inline_owner = Some(idx);
                     self.anchor = Some((*story, path.0.clone()));
@@ -1198,6 +1206,7 @@ impl Exporter<'_> {
                             // Link text: in a `Link` element with its annotation (see `link_slot`).
                             Draw::Glyphs { link: Some(target), .. } if self.opts.tagged && self.link_target(target).is_some() => {
                                 let c = self.link_slot(idx, target);
+                                self.link_runs.entry((idx, *l0)).or_default().push(c);
                                 self.link_owner = Some((idx, c));
                                 self.tagged(s, Role::Link(idx, c), None, |me, s| me.draw(s, d));
                                 self.link_owner = None;
@@ -2006,7 +2015,6 @@ impl Exporter<'_> {
             Some((e, c, t)) if *e == i && c.checked_add(1) == Some(len) && t == target => *c,
             _ => {
                 self.open_link = Some((i, len, target.to_string()));
-                self.link_slots.entry((i, target.to_string())).or_insert(len);
                 len
             }
         }

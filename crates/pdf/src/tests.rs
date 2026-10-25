@@ -1347,7 +1347,7 @@ fn bookmark_destination_is_the_page_of_its_start() {
         drawn_lines: HashSet::new(),
         link_owner: None,
         open_link: None,
-        link_slots: HashMap::new(),
+        link_runs: HashMap::new(),
         links: Vec::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
@@ -2904,4 +2904,30 @@ fn a_link_in_a_repeated_header_row_is_one_link() {
     let objr = vec!["OBJR"; pages].join(" ");
     assert!(tree.contains(&format!("TH(P(Link({objr})))")), "one Link, an annotation per page: {tree}");
     assert_eq!(tree.matches("Link(").count(), 1, "{tree}");
+}
+
+/// Two separate links to the same target in a repeated header row stay two links: each repeat's
+/// annotation joins its own run's `Link`, not the first one with that target.
+#[test]
+fn same_target_links_in_a_repeated_header_row_stay_apart() {
+    let mut d = Document::new();
+    let mut t = Table::new(70, 2, 400.0);
+    t.rows[0].props.header = true;
+    let site = CharProps { link: Some("https://example.com/".into()), ..Default::default() };
+    let mut p = Paragraph::with_text("Home", site.clone());
+    let n = p.len();
+    p.insert_text(n, " and ", &CharProps::default()).unwrap();
+    let n = p.len();
+    p.insert_text(n, "home again", &site).unwrap();
+    t.rows[0].cells[0].blocks = vec![para_block(p)];
+    for r in 1..70 {
+        t.rows[r].cells[0].blocks = text_cell(&format!("Row {r}"));
+    }
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let pages = hayro_syntax::Pdf::new(bytes.clone()).unwrap().pages().len();
+    assert!(pages >= 2, "the table runs onto another page");
+    let tree = structure(&bytes);
+    let objr = vec!["OBJR"; pages].join(" ");
+    assert!(tree.contains(&format!("TH(P(Link({objr}) Link({objr})))")), "each link an annotation per page: {tree}");
 }
