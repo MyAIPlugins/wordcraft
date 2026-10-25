@@ -2790,3 +2790,23 @@ fn every_table_row_spans_the_same_columns() {
     let raw = String::from_utf8_lossy(&bytes);
     assert!(raw.contains("/ColSpan 2") || raw.contains("/ColSpan/2"), "the short row's gap spans the two columns it leaves out");
 }
+
+/// A cell marked as continuing a vertical merge with no merge above it to continue (malformed,
+/// but found in real files) is a cell of its own, so its row keeps all its columns.
+#[test]
+fn an_orphan_merge_continuation_is_a_cell_of_its_own() {
+    use wordcraft_doc::props::VMerge;
+    let mut d = Document::new();
+    let mut t = Table::new(2, 2, 300.0);
+    t.rows[0].cells[0].blocks = text_cell("Top");
+    t.rows[1].cells[1].props.vmerge = VMerge::Continue;
+    t.rows[1].cells[1].blocks = text_cell("Orphan");
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    // Both rows have both columns (before, the second row had one cell). Layout doesn't draw
+    // what a continuation holds, so its cell is empty here, as on the page.
+    assert!(tree.contains("Table(TBody(TR(TD(P) TD) TR(TD TD)))"), "{tree}");
+    let text = squash(&extract_text(&bytes).concat());
+    assert!(text.contains("Top") && !text.contains("Orphan"), "{text}");
+}

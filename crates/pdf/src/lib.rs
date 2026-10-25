@@ -1349,10 +1349,17 @@ impl Exporter<'_> {
             return Node::Group(TagGroup::with_children(Tag::Div, content));
         };
         use wordcraft_doc::props::VMerge;
+        // A cell that continues a vertical merge from the cell above it is part of that cell. A
+        // "continue" with nothing to continue above it (malformed, but found in real files) is a
+        // cell of its own.
+        let covered = |r: usize, c: usize| {
+            table.rows.get(r).and_then(|row| row.cells.get(c)).is_some_and(|x| x.props.vmerge == VMerge::Continue)
+                && table.vertical_extent(r, c).is_some_and(|(top, _)| top < r)
+        };
         // What a vertically merged cell's later rows hold belongs to the merged cell.
         for (r, row) in table.rows.iter().enumerate() {
-            for (c, cell) in row.cells.iter().enumerate() {
-                if cell.props.vmerge != VMerge::Continue {
+            for c in 0..row.cells.len() {
+                if !covered(r, c) {
                     continue;
                 }
                 let Some(moved) = cells.remove(&(r, c)) else { continue };
@@ -1364,7 +1371,7 @@ impl Exporter<'_> {
         let heads = table.rows.iter().take_while(|r| r.props.header).count();
         // A row whose cells all continue merges from above has no cell of its own and no `TR`:
         // a merged cell's `RowSpan` counts only the rows that have one.
-        let has_tr = |r: usize| table.rows.get(r).is_some_and(|row| row.cells.iter().any(|x| x.props.vmerge != VMerge::Continue));
+        let has_tr = |r: usize| table.rows.get(r).is_some_and(|row| (0..row.cells.len()).any(|c| !covered(r, c)));
         let span = |n: usize| NonZeroU32::new(u32::try_from(n).unwrap_or(1)).filter(|n| n.get() > 1);
         let (mut head, mut body) = (Vec::new(), Vec::new());
         // An empty cell standing for `n` grid columns a row leaves out (`w:gridBefore`,
@@ -1380,7 +1387,7 @@ impl Exporter<'_> {
                 tr.push(gap(before));
             }
             for (c, cell) in row.cells.iter().enumerate() {
-                if cell.props.vmerge == VMerge::Continue {
+                if covered(r, c) {
                     continue;
                 }
                 let content = cells.remove(&(r, c)).map(|s| self.nodes(s)).unwrap_or_default();
