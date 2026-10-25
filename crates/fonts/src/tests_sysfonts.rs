@@ -706,3 +706,31 @@ fn catalog_postscript_names() {
     assert!(!has(&db.families(), "SysfontSans-Bold"));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Hebrew falls back to the same font whatever loaded before it (#4300): the ranked right-to-left
+/// family (DejaVu Sans, installed beside Liberation Sans), not Liberation Sans because a document
+/// had asked for Arial first. Skipped where those two fonts aren't installed.
+#[test]
+fn rtl_fallback_does_not_depend_on_what_loaded_before() {
+    let src = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"];
+    if src.iter().any(|p| !Path::new(p).exists()) {
+        eprintln!("skipped: DejaVu Sans and Liberation Sans are not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("dc-sysfonts-{}-rtl", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for p in src {
+        std::fs::copy(p, dir.join(Path::new(p).file_name().unwrap())).unwrap();
+    }
+    let fallback = |liberation_first: bool| {
+        let db = FontDb::with_font_dirs(vec![dir.clone()]);
+        let latin = db.face(FALLBACK_FAMILY, "Regular");
+        if liberation_first {
+            assert_eq!(db.face("Liberation Sans", "Regular").family, "Liberation Sans");
+        }
+        db.fallback_for('ש', latin.id()).map(|f| f.family.clone())
+    };
+    assert_eq!(fallback(false).as_deref(), Some("DejaVu Sans"));
+    assert_eq!(fallback(true).as_deref(), Some("DejaVu Sans"), "the same font after Liberation Sans loaded first");
+}

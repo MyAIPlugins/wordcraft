@@ -1568,6 +1568,10 @@ impl FontDb {
         if let Some(face) = self.circle_fallback(c, exclude) {
             return (Some(face), self.read_faces().len());
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if crate::is_rtl(c) || arabic_block(c) {
+            self.load_rtl_fallbacks();
+        }
         let (found, n) = self.loaded_fallback(c, exclude);
         if found.is_some() {
             return (found, n);
@@ -1745,6 +1749,32 @@ impl FontDb {
     /// file under 40 MB, found through the coverage index). Returns true if one was loaded.
     /// Misses are remembered.
     #[cfg(not(target_arch = "wasm32"))]
+    /// Load every installed [`RTL_FALLBACKS`] family (each tried once). The right-to-left
+    /// fallback ranks those families above the other loaded faces, but only chooses among faces
+    /// already loaded: without this, Hebrew or Arabic text fell back to whatever loaded face
+    /// happened to cover it first (Liberation Sans once a document had asked for Arial), and to
+    /// the ranked family only after something else loaded it. The same text then drew in
+    /// different fonts depending on what was laid out before it, even within one document (#4300).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_rtl_fallbacks(&self) {
+        // One search at a time (see `searching`): a search racing one that is still loading a
+        // family would skip it as tried and choose without it.
+        let _searching = self.searching.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).enabled {
+            return;
+        }
+        let cataloged: Vec<String> = self.read_catalog().iter().map(|e| e.family.clone()).collect();
+        for fam in RTL_FALLBACKS {
+            if self.is_loaded(fam) || !cataloged.iter().any(|f| f.eq_ignore_ascii_case(fam)) {
+                continue;
+            }
+            if !self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).tried.insert(fam) {
+                continue;
+            }
+            self.load_cataloged(fam);
+        }
+    }
+
     fn system_fallback(&self, c: char) -> bool {
         if c.is_control() || c.is_whitespace() {
             return false;
