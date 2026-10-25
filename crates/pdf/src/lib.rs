@@ -1169,8 +1169,10 @@ impl Exporter<'_> {
         if let Some(i) = self.tag_index.get(&(story, path.clone())) {
             return *i;
         }
-        let kind: TagKind = match self.doc.para(story, path).map(|p| self.doc.styles.resolve_para(&p.props).outline_level) {
-            Some(Some(l)) if l < 6 => {
+        // The outline level as layout resolved it (a table style's paragraph formatting included),
+        // the same one that decides below whether a numbered paragraph is a list item.
+        let kind: TagKind = match pl.rp.outline_level {
+            Some(l) if l < 6 => {
                 let title = self.doc.para(story, path).map(|p| self.title_text(p, pl).trim().chars().take(200).collect::<String>());
                 Tag::Hn(NonZeroU16::new(u16::from(l) + 1).unwrap_or(NonZeroU16::MIN), title).into()
             }

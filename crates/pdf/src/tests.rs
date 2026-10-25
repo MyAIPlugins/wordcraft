@@ -2611,3 +2611,29 @@ fn a_numbered_headings_number_stays_in_the_heading() {
     let text = squash(&extract_text(&bytes).concat());
     assert!(text.contains("1.") && text.contains("Introduction"), "{text}");
 }
+
+/// A paragraph made a heading by its table's style (the style's paragraph formatting sets an
+/// outline level) is a heading, as layout resolves it, numbered or not.
+#[test]
+fn a_heading_by_table_style_is_a_heading() {
+    let mut d = Document::new();
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "HeadingCells".into(),
+        name: "Heading Cells".into(),
+        kind: wordcraft_doc::StyleKind::Table,
+        para: wordcraft_doc::ParaProps { outline_level: Some(0), ..Default::default() },
+        ..Default::default()
+    });
+    let list = d.numbering.add_list(ListKind::Numbered);
+    let mut t = Table::new(1, 2, 400.0);
+    t.props.style = Some("HeadingCells".into());
+    t.rows[0].cells[0].blocks = vec![para_block(Paragraph::with_text("Plain cell heading", CharProps::default()))];
+    let mut numbered = Paragraph::with_text("Numbered cell heading", CharProps::default());
+    numbered.props.numbering = Some(NumRef { num: list, level: 0 });
+    t.rows[0].cells[1].blocks = vec![para_block(numbered)];
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert_eq!(tree.matches("H1").count(), 2, "{tree}");
+    assert!(!tree.contains("LI"), "a numbered heading is no list item: {tree}");
+}
