@@ -1347,6 +1347,7 @@ fn bookmark_destination_is_the_page_of_its_start() {
         drawn_lines: HashSet::new(),
         link_owner: None,
         open_link: None,
+        link_slots: HashMap::new(),
         links: Vec::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
@@ -2880,4 +2881,27 @@ fn links_are_link_elements_with_their_annotations() {
     for w in ["Visit the site now", "back to the start", "Do not click"] {
         assert!(text.contains(&squash(w)), "{w} missing from {text}");
     }
+}
+
+/// A link in a header row repeated at the top of later pages stays one link: each repeat's
+/// annotation joins the `Link` element of the first time, while the repeated text is an
+/// artifact (PDF/UA 7.18.5: every link annotation is in a `Link`).
+#[test]
+fn a_link_in_a_repeated_header_row_is_one_link() {
+    let mut d = Document::new();
+    let mut t = Table::new(70, 2, 400.0);
+    t.rows[0].props.header = true;
+    t.rows[0].cells[0].blocks =
+        vec![para_block(Paragraph::with_text("Source", CharProps { link: Some("https://example.com/".into()), ..Default::default() }))];
+    for r in 1..70 {
+        t.rows[r].cells[0].blocks = text_cell(&format!("Row {r}"));
+    }
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let pages = hayro_syntax::Pdf::new(bytes.clone()).unwrap().pages().len();
+    assert!(pages >= 2, "the table runs onto another page");
+    let tree = structure(&bytes);
+    let objr = vec!["OBJR"; pages].join(" ");
+    assert!(tree.contains(&format!("TH(P(Link({objr})))")), "one Link, an annotation per page: {tree}");
+    assert_eq!(tree.matches("Link(").count(), 1, "{tree}");
 }
