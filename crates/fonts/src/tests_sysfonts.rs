@@ -708,8 +708,10 @@ fn catalog_postscript_names() {
 }
 
 /// Hebrew falls back to the same font whatever loaded before it (#4300): the ranked right-to-left
-/// family (DejaVu Sans, installed beside Liberation Sans), not Liberation Sans because a document
-/// had asked for Arial first. Skipped where those two fonts aren't installed.
+/// family, not Liberation Sans because a document had asked for Arial first. Which family that is
+/// depends on the build (DejaVu Sans from the folder, or Noto Sans Hebrew when built with
+/// craft-fonts), so the test compares the two cases. Skipped where DejaVu Sans and Liberation Sans
+/// aren't installed.
 #[test]
 fn rtl_fallback_does_not_depend_on_what_loaded_before() {
     let src = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"];
@@ -731,6 +733,7 @@ fn rtl_fallback_does_not_depend_on_what_loaded_before() {
         }
         db.fallback_for('ש', latin.id()).map(|f| f.family.clone())
     };
-    assert_eq!(fallback(false).as_deref(), Some("DejaVu Sans"));
-    assert_eq!(fallback(true).as_deref(), Some("DejaVu Sans"), "the same font after Liberation Sans loaded first");
+    let fresh = fallback(false);
+    assert!(fresh.as_deref().is_some_and(|f| f != "Liberation Sans"), "{fresh:?}");
+    assert_eq!(fallback(true), fresh, "the same font after Liberation Sans loaded first");
 }
