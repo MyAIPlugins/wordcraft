@@ -2762,3 +2762,31 @@ fn a_row_merged_away_is_left_out_of_row_spans() {
     let raw = String::from_utf8_lossy(&bytes);
     assert!(!raw.contains("/RowSpan"), "no cell spans more rows than there are");
 }
+
+/// Rows that leave grid columns out (`w:gridBefore`, a row shorter than the table) get an empty
+/// cell standing for them, so every row spans the same columns (PDF/UA 7.2); a table of header
+/// rows alone is a TBody, since a THead needs a TBody after it.
+#[test]
+fn every_table_row_spans_the_same_columns() {
+    let mut d = Document::new();
+    let mut t = Table::new(3, 3, 450.0);
+    t.rows[0].props.header = true;
+    for (r, c, s) in [(0, 0, "A"), (0, 1, "B"), (0, 2, "C"), (2, 0, "Short")] {
+        t.rows[r].cells[c].blocks = text_cell(s);
+    }
+    // Row 1 starts one grid column in; row 2 has one cell only.
+    t.rows[1].props.grid_before = 1;
+    t.rows[1].cells.truncate(2);
+    t.rows[1].cells[0].blocks = text_cell("Indented");
+    t.rows[2].cells.truncate(1);
+    let mut heads = Table::new(1, 2, 300.0);
+    heads.rows[0].props.header = true;
+    heads.rows[0].cells[0].blocks = text_cell("Only");
+    d.body = vec![Arc::new(Block::Table(t)), para_block(Paragraph::new()), Arc::new(Block::Table(heads))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert!(tree.contains("Table(THead(TR(TH(P) TH(P) TH(P))) TBody(TR(TD TD(P) TD) TR(TD(P) TD)))"), "{tree}");
+    assert!(tree.contains("Table(TBody(TR(TH(P) TH)))"), "{tree}");
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(raw.contains("/ColSpan 2") || raw.contains("/ColSpan/2"), "the short row's gap spans the two columns it leaves out");
+}

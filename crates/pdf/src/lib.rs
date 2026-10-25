@@ -1367,8 +1367,18 @@ impl Exporter<'_> {
         let has_tr = |r: usize| table.rows.get(r).is_some_and(|row| row.cells.iter().any(|x| x.props.vmerge != VMerge::Continue));
         let span = |n: usize| NonZeroU32::new(u32::try_from(n).unwrap_or(1)).filter(|n| n.get() > 1);
         let (mut head, mut body) = (Vec::new(), Vec::new());
+        // An empty cell standing for `n` grid columns a row leaves out (`w:gridBefore`,
+        // `w:gridAfter`, or a row shorter than the table): every row then spans the same
+        // columns, as a screen reader's grid (and PDF/UA) needs.
+        let gap = |n: usize| Node::Group(TagGroup::with_children(Tag::TD.with_col_span(span(n)), Vec::new()));
+        let grid = table.cols();
         for (r, row) in table.rows.iter().enumerate() {
             let mut tr = Vec::new();
+            let before = row.first_grid();
+            let after = grid.saturating_sub(before + row.cells.iter().map(wordcraft_doc::table::Cell::span).sum::<usize>());
+            if before > 0 {
+                tr.push(gap(before));
+            }
             for (c, cell) in row.cells.iter().enumerate() {
                 if cell.props.vmerge == VMerge::Continue {
                     continue;
@@ -1383,8 +1393,12 @@ impl Exporter<'_> {
                 };
                 tr.push(Node::Group(TagGroup::with_children(tag, content)));
             }
-            if tr.is_empty() {
+            // A row whose cells all continue merges from above has no row of its own.
+            if !has_tr(r) {
                 continue;
+            }
+            if after > 0 {
+                tr.push(gap(after));
             }
             let tr = Node::Group(TagGroup::with_children(Tag::TR, tr));
             if r < heads { head.push(tr) } else { body.push(tr) }
@@ -1394,6 +1408,10 @@ impl Exporter<'_> {
         if !cells.is_empty() {
             let tds = cells.into_values().map(|s| Node::Group(TagGroup::with_children(Tag::TD, self.nodes(s)))).collect();
             body.push(Node::Group(TagGroup::with_children(Tag::TR, tds)));
+        }
+        // Header rows alone (no other rows) are the table's body: a THead needs a TBody after it.
+        if body.is_empty() {
+            std::mem::swap(&mut head, &mut body);
         }
         let mut parts = Vec::new();
         if !head.is_empty() {
