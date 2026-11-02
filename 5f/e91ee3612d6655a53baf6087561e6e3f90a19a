@@ -1,0 +1,21 @@
+ROADMAP.md
+  s_a60a47a396d566::t_8ce85ffb382180 7,143-144,698
+docs/file-format-parity.md
+  s_a60a47a396d566::t_0a6e33fff7bbb7 3,57,276-277,288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5fe91ee3612d6655a53baf6087561e6e3f90a19a",
+  "prompts": {},
+  "sessions": {
+    "s_a60a47a396d566": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_a60a47a396d566",
+        "model": "unknown"
+      },
+      "human_author": "myaiplugins <info@myaiplugins.com>"
+    }
+  }
+}
